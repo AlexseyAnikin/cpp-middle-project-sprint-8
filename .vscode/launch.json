@@ -5,13 +5,14 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "type": "cppdbg",
+            "type": "lldb",
             "request": "launch",
             "name": "Debug",
             "program": "${workspaceFolder}/build/refactor_tool",
             "args": ["${workspaceFolder}/tests/tests_data/for_refactor.cpp"],
             "cwd": "${workspaceFolder}",
-            "preLaunchTask": "GCC: Build Debug app",
+            "preLaunchTask": "GCC: Build Debug",
+            "initCommands": ["settings set target.disable-aslr false"]
         }
     ]
 }
