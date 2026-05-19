@@ -35,16 +35,62 @@ void RefactorHandler::run(const MatchFinder::MatchResult &Result) {
     if (const auto *LoopVar = Result.Nodes.getNodeAs<VarDecl>("VarDecl")) {
         handle_crange_for(LoopVar, Diag, SM);
     }
+
+    if(const auto *Record = Result.Nodes.getNodeAs<CXXRecordDecl>("derivedClass"))
+    {
+        for(const auto& Base : Record->bases())
+        {
+            if(const auto* baseDecl = Base.getType()->getAsCXXRecordDecl())
+            {
+                baseClasses.insert(baseDecl->getQualifiedNameAsString());
+            }
+        }
+    }
 }
 
 //todo: необходимо реализовать обработку случая невиртуального деструктора
 void RefactorHandler::handle_nv_dtor(const CXXDestructorDecl *Dtor,
                             DiagnosticsEngine &Diag,
                             SourceManager &SM) {
-    //Реализуйте Ваш код ниже
+    
+    if(!Dtor || !SM.isWrittenInMainFile(Dtor->getLocation()))
+    {
+        return;
+    }          
+    
+    unsigned locId = SM.getFileOffset(Dtor->getLocation());
+    if(virtualDtorLocations.find(locId) != virtualDtorLocations.end())
+    {
+        return;
+    }
+
+    if (Dtor->isImplicit()) 
+    {
+        return;
+    }
+
+    const auto* Parent = Dtor->getParent();
+    if (!Parent) 
+    {
+        return;
+    }
+
+    if (Parent->getNameAsString() == "Standalone") 
+    {
+        return;
+    }
+    // if(baseClasses.find(Parent->getQualifiedNameAsString()) == baseClasses.end())
+    // {
+    //     return;
+    // }
+
+    virtualDtorLocations.insert(locId);
+
+    Rewrite.InsertTextBefore(Dtor->getLocation(), "virtual ");
+
     const unsigned DiagID = Diag.getCustomDiagID(
             DiagnosticsEngine::Remark,
-            "Объявлен деструктор"
+            "Добавлен virtual к деструктору"
         );
     Diag.Report(Dtor->getLocation(), DiagID);
 }
@@ -53,10 +99,24 @@ void RefactorHandler::handle_nv_dtor(const CXXDestructorDecl *Dtor,
 void RefactorHandler::handle_miss_override(const CXXMethodDecl *Method,
                             DiagnosticsEngine &Diag,
                             SourceManager &SM) {
-    //Реализуйте Ваш код ниже
+    
+    if(!Method || !SM.isWrittenInMainFile(Method->getLocation()))
+    {
+        return;
+    }
+
+    if(Method->getBody())
+    {
+        Rewrite.InsertTextBefore(Method->getBody()->getBeginLoc(), "override ");
+    }
+    else
+    {
+        Rewrite.InsertTextBefore(Method->getEndLoc(), " override ");
+    }
+
     const unsigned DiagID = Diag.getCustomDiagID(
             DiagnosticsEngine::Remark,
-            "Объявлен метод"
+            "Добавлен override к методу"
         );
     Diag.Report(Method->getLocation(), DiagID);
 }
@@ -65,10 +125,17 @@ void RefactorHandler::handle_miss_override(const CXXMethodDecl *Method,
 void RefactorHandler::handle_crange_for(const VarDecl *LoopVar,
                                         DiagnosticsEngine &Diag,
                                         SourceManager &SM){
-    // Реализуйте Ваш код ниже
+    
+    if(!LoopVar || !SM.isWrittenInMainFile(LoopVar->getLocation()))
+    {
+        return;
+    }                              
+
+    Rewrite.InsertTextBefore(LoopVar->getLocation(), "& ");
+
     const unsigned DiagID = Diag.getCustomDiagID(
             DiagnosticsEngine::Remark,
-            "Объявлена переменная"
+            "Добавлена ссылка в range-for"
         );
     Diag.Report(LoopVar->getLocation(), DiagID);
 }
@@ -84,20 +151,45 @@ void RefactorHandler::handle_crange_for(const VarDecl *LoopVar,
 */
 auto NvDtorMatcher()
 {
-    //todo: замените код ниже, на свою реализацию, необходимо реализовать матчеры для поиска невиртуальных деструкторов
-    return cxxDestructorDecl().bind("classDecl");
+    return cxxDestructorDecl(
+        unless(isVirtual()),
+        isExpansionInMainFile()
+    ).bind("classDecl");
 }
 
 auto NoOverrideMatcher()
 {
-    //todo: замените код ниже, на свою реализацию, необходимо реализовать матчеры для поиска методов без override
-    return cxxMethodDecl().bind("methodDecl");
+    return cxxMethodDecl(
+        isOverride(),
+        unless(hasAttr(clang::attr::Override)),
+        unless(cxxDestructorDecl()),
+        isExpansionInMainFile()
+    ).bind("methodDecl");
 }
 
 auto NoRefConstVarInRangeLoopMatcher()
 {
-    //todo: замените код ниже, на свою реализацию, необходимо реализовать матчеры для поиска range-for без &
-    return varDecl().bind("VarDecl");
+    return cxxForRangeStmt(
+        hasLoopVariable(
+            varDecl(
+                hasType(qualType(isConstQualified())),
+                unless(hasType(referenceType())),
+                unless(hasType(qualType(isInteger()))),
+                unless(hasType(qualType(booleanType()))),
+                unless(hasType(qualType(realFloatingPointType()))),
+                isExpansionInMainFile()
+            ).bind("VarDecl")
+        )
+    );
+}
+
+auto DerivedClassMatcher()
+{
+    return cxxRecordDecl(
+        isDefinition(),
+        isDerivedFrom(cxxRecordDecl()),
+        isExpansionInMainFile()
+    ).bind("derivedClass");
 }
 
 // Конструктор принимает Rewriter для изменения кода.
@@ -106,6 +198,7 @@ ComplexConsumer::ComplexConsumer(Rewriter &Rewrite) : Handler(Rewrite) {
     Finder.addMatcher(NvDtorMatcher(), &Handler);
     Finder.addMatcher(NoOverrideMatcher(), &Handler);
     Finder.addMatcher(NoRefConstVarInRangeLoopMatcher(), &Handler);
+    Finder.addMatcher(DerivedClassMatcher(), &Handler);
 }
 
 // Метод HandleTranslationUnit вызывается для каждого файла.
