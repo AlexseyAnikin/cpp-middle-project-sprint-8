@@ -75,15 +75,6 @@ void RefactorHandler::handle_nv_dtor(const CXXDestructorDecl *Dtor,
         return;
     }
 
-    if (Parent->getNameAsString() == "Standalone") 
-    {
-        return;
-    }
-    // if(baseClasses.find(Parent->getQualifiedNameAsString()) == baseClasses.end())
-    // {
-    //     return;
-    // }
-
     virtualDtorLocations.insert(locId);
 
     Rewrite.InsertTextBefore(Dtor->getLocation(), "virtual ");
@@ -126,6 +117,18 @@ void RefactorHandler::handle_crange_for(const VarDecl *LoopVar,
                                         DiagnosticsEngine &Diag,
                                         SourceManager &SM){
     
+    const auto varType = LoopVar->getType();
+
+    if(varType->isFundamentalType())
+    {
+        return;
+    }
+
+    if(varType->isReferenceType())
+    {
+        return;
+    }
+
     if(!LoopVar || !SM.isWrittenInMainFile(LoopVar->getLocation()))
     {
         return;
@@ -151,15 +154,27 @@ void RefactorHandler::handle_crange_for(const VarDecl *LoopVar,
 */
 auto NvDtorMatcher()
 {
-    return cxxDestructorDecl(
-        unless(isVirtual()),
-        isExpansionInMainFile()
-    ).bind("classDecl");
+    return cxxRecordDecl(
+        isDefinition(),
+        isDerivedFrom(
+            cxxRecordDecl(
+                isDefinition(),
+                has(
+                    cxxDestructorDecl(
+                        unless(isVirtual()),
+                        unless(isImplicit()),
+                        isExpansionInMainFile()
+                    ).bind("classDecl")
+                )
+            )
+        )
+    );
 }
 
 auto NoOverrideMatcher()
 {
     return cxxMethodDecl(
+        isVirtual(),
         isOverride(),
         unless(hasAttr(clang::attr::Override)),
         unless(cxxDestructorDecl()),
