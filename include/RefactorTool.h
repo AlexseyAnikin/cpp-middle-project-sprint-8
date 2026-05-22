@@ -9,6 +9,7 @@
 #include "llvm/Support/CommandLine.h"
 
 #include <unordered_set>
+#include <string>
 
 class RefactorHandler : public clang::ast_matchers::MatchFinder::MatchCallback {
 public:
@@ -35,6 +36,7 @@ private:
                                     clang::SourceManager &SM);
 private:
     clang::Rewriter &Rewrite;
+    std::unordered_set<std::string> baseClasses;
     std::unordered_set<unsigned> virtualDtorLocations; // Для хранения позиций деструкторов, к которым уже добавлен virtual
 };
 
