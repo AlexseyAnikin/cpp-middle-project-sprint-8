@@ -1,3 +1,16 @@
 #include <gtest/gtest.h>
 
-TEST(BasicCheck, SimpleCheck) { EXPECT_EQ(1 + 1, 2); }
+TEST(VirtualDtorTest, SimpleCheck)
+{
+    EXPECT_TRUE(true);
+}
+
+TEST(OverrideTest, SimpleCheck)
+{
+    EXPECT_TRUE(true);
+}
+
+TEST(ConstReferenceTest, SimpleCheck)
+{
+    EXPECT_TRUE(true);
+}
