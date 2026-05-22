@@ -134,7 +134,10 @@ void RefactorHandler::handle_crange_for(const VarDecl *LoopVar,
         return;
     }                              
 
-    Rewrite.InsertTextBefore(LoopVar->getLocation(), "& ");
+    SourceLocation varNameLoc = LoopVar->getLocation();
+    SourceLocation spaceBeforeNameLoc = varNameLoc.getLocWithOffset(-1);
+
+    Rewrite.ReplaceText(spaceBeforeNameLoc, 1, "& ");
 
     const unsigned DiagID = Diag.getCustomDiagID(
             DiagnosticsEngine::Remark,
